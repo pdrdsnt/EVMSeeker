@@ -13,12 +13,10 @@ use alloy::{
 };
 use futures::channel::mpsc::UnboundedReceiver;
 use sol::sol_types::{
-    IUniswapV2Pair::{IUniswapV2PairEvents, Mint, Swap, Sync, Transfer},
-    StateView::{Donate, Initialize, ModifyLiquidity, StateViewEvents},
-    V3Pool::{Burn, Flash, V3PoolEvents},
+    IUniswapV2Pair::{self, IUniswapV2PairEvents, Mint, Swap, Sync, Transfer},
+    StateView::{self, Donate, Initialize, ModifyLiquidity, StateViewEvents},
+    V3Pool::{self, Burn, Flash, V3PoolEvents},
 };
-
-use crate::ws_funnel::ReceiverFunnel;
 
 pub struct Chunk {
     addrs: HashSet<Address>,
@@ -79,6 +77,7 @@ pub fn generate_pool_events() -> Vec<&'static str> {
     let v2_events = IUniswapV2PairEvents::SIGNATURES.clone();
     let v3_events = V3PoolEvents::SIGNATURES.clone();
     let v4_events = StateViewEvents::SIGNATURES.clone();
+    print!("==v4 events: {:?}", &v4_events);
     [v2_events, v3_events, v4_events].concat()
 }
 
@@ -104,4 +103,27 @@ pub enum UnifiedPoolEvent {
     V4Initialize(),
     V4Modify(),
     V4Swap(),
+}
+#[derive(Debug, Clone)]
+pub enum UnifiedPoolEventResponse {
+    // UNISWAP V2
+    V2Mint(Log<IUniswapV2Pair::Mint>),
+    V2Burn(Log<IUniswapV2Pair::Burn>),
+    V2Swap(Log<IUniswapV2Pair::Swap>),
+    V2Sync(Log<IUniswapV2Pair::Sync>),
+    V2Approval(Log<IUniswapV2Pair::Approval>),
+    V2Transfer(Log<IUniswapV2Pair::Transfer>),
+
+    // UNISWAP V3
+    V3Mint(Log<V3Pool::Mint>),
+    V3Swap(Log<V3Pool::Swap>),
+    V3Collect(Log<V3Pool::Collect>),
+    V3Burn(Log<V3Pool::Burn>),
+    V3Flash(Log<V3Pool::Flash>),
+
+    // UNISWAP V4 STATEVIEW
+    V4Donate(Log<StateView::Donate>),
+    V4Initialize(Log<StateView::Initialize>),
+    V4Modify(Log<StateView::ModifyLiquidity>),
+    V4Swap(Log<StateView::Swap>),
 }
