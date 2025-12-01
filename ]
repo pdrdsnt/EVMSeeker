@@ -1,61 +1,199 @@
-use std::{
-    collections::HashSet,
-    pin::Pin,
-    task::{Context, Poll},
-};
+use std::collections::{HashMap, HashSet};
 
 use alloy::{
-    primitives::{Address, map::HashSet},
-    rpc::types::Log,
-    transports::http::reqwest::Url,
+    primitives::{Address, LogData},
+    providers::{Provider, ProviderBuilder},
+    pubsub::{Subscription, SubscriptionStream},
+    rpc::{
+        client::RpcClient,
+        types::{Filter, Log},
+    },
+    transports::{RpcError, TransportErrorKind, http::reqwest::Url, ws::WsConnect},
 };
-use futures::Stream;
-use tokio::sync::broadcast::error::TryRecvError;
+use futures::channel::mpsc::UnboundedReceiver;
+use sol::sol_types::{
+    IUniswapV2Pair,
+    StateView::{self, Swap},
+    V3Pool,
+};
 
-use crate::{WsProvider, pool_event::UnifiedPoolEvent};
+use tokio::sync::mpsc::unbounded_channel;
+use tokio_stream::wrappers::BroadcastStream;
 
-pub struct WsSubChunk {
-    pub provider: WsProvider,
-    pub subbed_to: HashSet<Address>,
-    pub events: Vec<&'static str>,
-    pub sub: alloy::pubsub::Subscription<alloy::rpc::types::Log>,
+use crate::{
+    WsProvider,
+    pool_event::{
+        UnifiedPoolEvent, UnifiedPoolEventResponse, generate_pool_events, generate_pools_events_map,
+    },
+    receiver_funnel::ReceiverFunnel,
+    ws_sub_chunk::WsSubChunk,
+};
+
+pub struct WsProviderFunnel {
+    targets: HashSet<Address>,
+    chunks_by_provider: HashMap<WsProvider, WsSubChunk>,
+    events: Vec<&'static str>,
+    funnel: ReceiverFunnel<Log, WsSubChunk>,
 }
 
-impl WsSubChunk {
-    pub async fn new(
-        provider: WsProvider,
-        addresses: Vec<Address>,
-        events: Vec<&str>,
-    ) -> Result<Self> {
-        let sub = crate::ws_sub(&provider, events.clone(), addresses.clone()).await?;
+impl WsProviderFunnel {
+    pub async fn start() -> (
+        WsProviderFunnel,
+        tokio::sync::mpsc::UnboundedReceiver<UnifiedPoolEventResponse>,
+    ) {
+        let (funnel, mut rx) = ReceiverFunnel::<Log, WsSubChunk>::start();
+        let e_map = generate_pools_events_map();
+        let e_enum = generate_pool_events();
 
-        Self {
-            provider,
-            subbed_to: HashSet::from_iter(addresses),
-            events,
-            sub,
+        let (this_tx, this_rx) = unbounded_channel::<UnifiedPoolEventResponse>();
+
+        tokio::spawn(async move {
+            let s = 0_u8;
+            println!("starting event listener thread");
+            while let Some(res) = rx.recv().await {
+                println!("awaiting");
+                if let Some(topic) = res.topic0() {
+                    if let Some(t) = e_map.get(topic) {
+                        match t {
+                            UnifiedPoolEvent::V2Mint() => {
+                                println!("v2 tranfert detected");
+                                if let Ok(decoded_log) = res.log_decode::<IUniswapV2Pair::Mint>() {
+                                    this_tx.send(UnifiedPoolEventResponse::V2Mint(decoded_log));
+                                }
+                            }
+                            UnifiedPoolEvent::V2Burn() => {
+                                println!("v2 burn detected");
+                                if let Ok(decoded_log) = res.log_decode::<IUniswapV2Pair::Burn>() {
+                                    this_tx.send(UnifiedPoolEventResponse::V2Burn(decoded_log));
+                                }
+                            }
+                            UnifiedPoolEvent::V2Swap() => {
+                                println!("v2 swap detected");
+                                if let Ok(decoded_log) = res.log_decode::<IUniswapV2Pair::Swap>() {
+                                    this_tx.send(UnifiedPoolEventResponse::V2Swap(decoded_log));
+                                }
+                            }
+                            UnifiedPoolEvent::V2Sync() => continue,
+                            UnifiedPoolEvent::V2Approval() => continue,
+                            UnifiedPoolEvent::V2Transfer() => {
+                                println!("v2 tranfert detected");
+                                if let Ok(decoded_log) =
+                                    res.log_decode::<IUniswapV2Pair::Transfer>()
+                                {
+                                    this_tx.send(UnifiedPoolEventResponse::V2Transfer(decoded_log));
+                                }
+                            }
+                            UnifiedPoolEvent::V3Mint() => {
+                                println!("v3 mint detected");
+                                if let Ok(decoded_log) = res.log_decode::<V3Pool::Mint>() {
+                                    this_tx.send(UnifiedPoolEventResponse::V3Mint(decoded_log));
+                                }
+                            }
+                            UnifiedPoolEvent::V3Swap() => {
+                                println!("v4 liquidity modification detected");
+                                if let Ok(decoded_log) = res.log_decode::<V3Pool::Swap>() {
+                                    this_tx.send(UnifiedPoolEventResponse::V3Swap(decoded_log));
+                                }
+                            }
+                            UnifiedPoolEvent::V3Collect() => {
+                                println!("v4 liquidity modification detected");
+                                if let Ok(decoded_log) = res.log_decode::<V3Pool::Collect>() {
+                                    this_tx.send(UnifiedPoolEventResponse::V3Collect(decoded_log));
+                                }
+                            }
+                            UnifiedPoolEvent::V3Burn() => {
+                                println!("v3 liquidity modification detected");
+                                if let Ok(decoded_log) = res.log_decode::<V3Pool::Burn>() {
+                                    this_tx.send(UnifiedPoolEventResponse::V3Burn(decoded_log));
+                                }
+                            }
+
+                            UnifiedPoolEvent::V3Flash() => {
+                                println!("v3 liquidity modification detected");
+                                if let Ok(decoded_log) = res.log_decode::<V3Pool::Flash>() {
+                                    this_tx.send(UnifiedPoolEventResponse::V3Flash(decoded_log));
+                                }
+                            }
+                            UnifiedPoolEvent::V4Donate() => {
+                                println!("v4 liquidity modification detected");
+                                if let Ok(decoded_log) = res.log_decode::<StateView::Donate>() {
+                                    this_tx.send(UnifiedPoolEventResponse::V4Donate(decoded_log));
+                                }
+                            }
+                            UnifiedPoolEvent::V4Initialize() => {
+                                println!("v4 liquidity modification detected");
+                                if let Ok(decoded_log) = res.log_decode::<StateView::Initialize>() {
+                                    this_tx
+                                        .send(UnifiedPoolEventResponse::V4Initialize(decoded_log));
+                                }
+                            }
+                            UnifiedPoolEvent::V4Modify() => {
+                                println!("v4 liquidity modification detected");
+                                if let Ok(decoded_log) =
+                                    res.log_decode::<StateView::ModifyLiquidity>()
+                                {
+                                    this_tx.send(UnifiedPoolEventResponse::V4Modify(decoded_log));
+                                }
+                            }
+                            UnifiedPoolEvent::V4Swap() => {
+                                println!("v4 swap detected");
+                                if let Ok(decoded_log) = res.log_decode::<StateView::Swap>() {
+                                    this_tx.send(UnifiedPoolEventResponse::V4Swap(decoded_log));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        (
+            Self {
+                funnel,
+                targets: HashSet::new(),
+                chunks_by_provider: HashMap::new(),
+                events: generate_pool_events(),
+            },
+            this_rx,
+        )
+    }
+
+    pub async fn add(&self, adresses: Vec<Address>) {
+        let new_addresses: Vec<Address> = adresses
+            .clone()
+            .iter()
+            .filter_map(|x| self.targets.get(x).cloned())
+            .collect();
+
+        if let Some(p) = provider {
+            if let Ok(new_chunk) = WsSubChunk::new(adresses, p, self.events.clone()).await {
+                self.funnel.add_subscription(new_chunk);
+            }
+        } else {
+            for (p, c) in self.chunks_by_provider.iter() {}
         }
     }
-    pub fn join(&mut self, other: WsSubChunk) {}
 }
 
-impl Stream for WsSubChunk {
-    type Item = Log;
+pub async fn create_ws_sub(
+    url: Url,
+    events: Vec<&str>,
+    adresses: Vec<Address>,
+) -> Result<Option<alloy::pubsub::Subscription<alloy::rpc::types::Log>>, RpcError<TransportErrorKind>>
+{
+    let ws_connect: WsConnect = WsConnect::new(url.clone());
 
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        match Pin::new(&mut self.sub).try_recv() {
-            Ok(item) => Poll::Ready(Some(item)),
-            Err(err) => match err {
-                TryRecvError::Empty => {
-                    cx.waker().wake_by_ref();
-                    Poll::Pending
-                }
-                TryRecvError::Closed => Poll::Ready(None),
-                TryRecvError::Lagged(_) => {
-                    cx.waker().wake_by_ref();
-                    Poll::Pending
-                }
-            },
+    let filter = Filter::new().address(adresses).events(events.clone());
+    print!("new filter: {:?}", filter);
+
+    match RpcClient::connect_pubsub(ws_connect).await {
+        Ok(rpc_client) => {
+            let provider = ProviderBuilder::new().connect_client(rpc_client);
+            let thing = Some(provider.subscribe_logs(&filter).await?);
+
+            println!("provider created {:?}", thing);
+            Ok(thing)
         }
+        Err(err) => Err(err),
     }
 }

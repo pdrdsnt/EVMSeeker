@@ -1,3 +1,5 @@
+use std::hash::Hash;
+
 use alloy::{
     primitives::{
         Address, B256,
@@ -22,6 +24,10 @@ pub struct Chunk {
     addrs: HashSet<Address>,
     tombstones: HashSet<Address>,
     id: u32,
+}
+
+pub struct PoolEvents {
+    map: HashMap<alloy::primitives::FixedBytes<32>, UnifiedPoolEvent>,
 }
 
 pub fn generate_pools_events_map()
@@ -104,6 +110,7 @@ pub enum UnifiedPoolEvent {
     V4Modify(),
     V4Swap(),
 }
+
 #[derive(Debug, Clone)]
 pub enum UnifiedPoolEventResponse {
     // UNISWAP V2

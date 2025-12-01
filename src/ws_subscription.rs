@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use alloy::{
     primitives::{Address, LogData},
@@ -12,25 +12,29 @@ use alloy::{
 };
 use futures::channel::mpsc::UnboundedReceiver;
 use sol::sol_types::{
+    IUniswapV2Pair,
     StateView::{self, Swap},
     V3Pool,
 };
+
 use tokio::sync::mpsc::unbounded_channel;
+use tokio_stream::wrappers::BroadcastStream;
 
 use crate::{
-    WsProvider,
+    WsP,
     pool_event::{
         UnifiedPoolEvent, UnifiedPoolEventResponse, generate_pool_events, generate_pools_events_map,
     },
     receiver_funnel::ReceiverFunnel,
-    ws_sub_chunk::WsSubChunk,
+    seeker::WsProvider,
+    ws_provider, ws_sub,
 };
 
 pub struct WsProviderFunnel {
     targets: HashSet<Address>,
-    pub provider: WsProvider,
+    provider: WsProvider,
     events: Vec<&'static str>,
-    funnel: ReceiverFunnel<Log, WsSubChunk>,
+    funnel: ReceiverFunnel<Log, SubscriptionStream<Log>>,
 }
 
 impl WsProviderFunnel {
@@ -40,38 +44,90 @@ impl WsProviderFunnel {
         WsProviderFunnel,
         tokio::sync::mpsc::UnboundedReceiver<UnifiedPoolEventResponse>,
     ) {
-        let (funnel, mut rx) = ReceiverFunnel::<Log, WsSubChunk>::start();
+        let (funnel, mut rx) = ReceiverFunnel::<Log, SubscriptionStream<Log>>::start();
         let e_map = generate_pools_events_map();
         let e_enum = generate_pool_events();
 
         let (this_tx, this_rx) = unbounded_channel::<UnifiedPoolEventResponse>();
-
         tokio::spawn(async move {
             let s = 0_u8;
             println!("starting event listener thread");
             while let Some(res) = rx.recv().await {
-                println!("awaiting");
                 if let Some(topic) = res.topic0() {
                     if let Some(t) = e_map.get(topic) {
                         match t {
-                            UnifiedPoolEvent::V2Mint() => continue,
-                            UnifiedPoolEvent::V2Burn() => continue,
-                            UnifiedPoolEvent::V2Swap() => continue,
+                            UnifiedPoolEvent::V2Mint() => {
+                                println!("v2 tranfert detected");
+                                if let Ok(decoded_log) = res.log_decode::<IUniswapV2Pair::Mint>() {
+                                    this_tx.send(UnifiedPoolEventResponse::V2Mint(decoded_log));
+                                }
+                            }
+                            UnifiedPoolEvent::V2Burn() => {
+                                println!("v2 burn detected");
+                                if let Ok(decoded_log) = res.log_decode::<IUniswapV2Pair::Burn>() {
+                                    this_tx.send(UnifiedPoolEventResponse::V2Burn(decoded_log));
+                                }
+                            }
+                            UnifiedPoolEvent::V2Swap() => {
+                                println!("v2 swap detected");
+                                if let Ok(decoded_log) = res.log_decode::<IUniswapV2Pair::Swap>() {
+                                    this_tx.send(UnifiedPoolEventResponse::V2Swap(decoded_log));
+                                }
+                            }
                             UnifiedPoolEvent::V2Sync() => continue,
                             UnifiedPoolEvent::V2Approval() => continue,
-                            UnifiedPoolEvent::V2Transfer() => continue,
-                            UnifiedPoolEvent::V3Mint() => continue,
+                            UnifiedPoolEvent::V2Transfer() => {
+                                println!("v2 tranfert detected");
+                                if let Ok(decoded_log) =
+                                    res.log_decode::<IUniswapV2Pair::Transfer>()
+                                {
+                                    this_tx.send(UnifiedPoolEventResponse::V2Transfer(decoded_log));
+                                }
+                            }
+                            UnifiedPoolEvent::V3Mint() => {
+                                println!("v3 mint detected");
+                                if let Ok(decoded_log) = res.log_decode::<V3Pool::Mint>() {
+                                    this_tx.send(UnifiedPoolEventResponse::V3Mint(decoded_log));
+                                }
+                            }
                             UnifiedPoolEvent::V3Swap() => {
                                 println!("v4 liquidity modification detected");
                                 if let Ok(decoded_log) = res.log_decode::<V3Pool::Swap>() {
                                     this_tx.send(UnifiedPoolEventResponse::V3Swap(decoded_log));
                                 }
                             }
-                            UnifiedPoolEvent::V3Collect() => continue,
-                            UnifiedPoolEvent::V3Burn() => continue,
-                            UnifiedPoolEvent::V3Flash() => continue,
-                            UnifiedPoolEvent::V4Donate() => continue,
-                            UnifiedPoolEvent::V4Initialize() => continue,
+                            UnifiedPoolEvent::V3Collect() => {
+                                println!("v4 liquidity modification detected");
+                                if let Ok(decoded_log) = res.log_decode::<V3Pool::Collect>() {
+                                    this_tx.send(UnifiedPoolEventResponse::V3Collect(decoded_log));
+                                }
+                            }
+                            UnifiedPoolEvent::V3Burn() => {
+                                println!("v3 liquidity modification detected");
+                                if let Ok(decoded_log) = res.log_decode::<V3Pool::Burn>() {
+                                    this_tx.send(UnifiedPoolEventResponse::V3Burn(decoded_log));
+                                }
+                            }
+
+                            UnifiedPoolEvent::V3Flash() => {
+                                println!("v3 liquidity modification detected");
+                                if let Ok(decoded_log) = res.log_decode::<V3Pool::Flash>() {
+                                    this_tx.send(UnifiedPoolEventResponse::V3Flash(decoded_log));
+                                }
+                            }
+                            UnifiedPoolEvent::V4Donate() => {
+                                println!("v4 liquidity modification detected");
+                                if let Ok(decoded_log) = res.log_decode::<StateView::Donate>() {
+                                    this_tx.send(UnifiedPoolEventResponse::V4Donate(decoded_log));
+                                }
+                            }
+                            UnifiedPoolEvent::V4Initialize() => {
+                                println!("v4 liquidity modification detected");
+                                if let Ok(decoded_log) = res.log_decode::<StateView::Initialize>() {
+                                    this_tx
+                                        .send(UnifiedPoolEventResponse::V4Initialize(decoded_log));
+                                }
+                            }
                             UnifiedPoolEvent::V4Modify() => {
                                 println!("v4 liquidity modification detected");
                                 if let Ok(decoded_log) =
@@ -109,7 +165,10 @@ impl WsProviderFunnel {
             .iter()
             .filter_map(|x| self.targets.get(x).cloned())
             .collect();
-        let new_chunk = 
+
+        if let Ok(new_chunk) = ws_sub(&self.provider, generate_pool_events(), adresses).await {
+            self.funnel.add_subscription(new_chunk.into_stream());
+        }
     }
 }
 

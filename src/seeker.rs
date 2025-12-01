@@ -12,19 +12,15 @@ use alloy::{
 
 use chain_json::{chain::ChainJsonInput, chain_json_model::JsonPoolKey, chains::ChainsJsonInput};
 use futures::channel::mpsc::UnboundedReceiver;
-use pool_event::{
-    UnifiedPoolEvent, UnifiedPoolEventResponse, generate_pool_events, generate_pools_events_map,
-};
-use receiver_funnel::ReceiverFunnel;
 use sol::sol_types::{StateView, V3Pool};
 use tokio::main;
-use ws_subscription::{WsProviderFunnel, create_ws_sub};
 
-pub mod block_sub_chunk;
-pub mod pool_event;
-pub mod receiver_funnel;
-pub mod ws_sub_chunk;
-pub mod ws_subscription;
+use crate::{
+    pool_event::{
+        UnifiedPoolEvent, UnifiedPoolEventResponse, generate_pool_events, generate_pools_events_map,
+    },
+    ws_subscription::WsProviderFunnel,
+};
 
 pub type WsProvider = alloy::providers::fillers::FillProvider<
     alloy::providers::fillers::JoinFill<
@@ -44,93 +40,46 @@ pub type WsProvider = alloy::providers::fillers::FillProvider<
 >;
 
 #[tokio::main(flavor = "current_thread")]
-async fn main() {
-    let mut chains = ChainsJsonInput::default();
-    let pool_events: HashMap<B256, UnifiedPoolEvent> = generate_pools_events_map();
-
-    let (funnel, mut rx) = ReceiverFunnel::<
-        UnifiedPoolEventResponse,
-        UnboundedReceiver<UnifiedPoolEventResponse>,
-    >::start();
-
-    if let Some(chain) = chains.chains.remove(&56_u64) {
-        for node in chain.ws_nodes_urls {
-            if let Ok(url) = Url::from_str(&node) {
-                let provider = ws_provider(url.clone()).await;
-
-                println!("provider: {}", url);
-
-                let dexes = chain.dexes.clone();
-
-                let mut pools: Vec<Address> = chain
-                    .pools
-                    .iter()
-                    .filter_map(|(key, pool)| match key {
-                        JsonPoolKey::V2(address) => Some(*address),
-                        JsonPoolKey::V3(address) => Some(*address),
-                        JsonPoolKey::V4(address, fixed_bytes) => None,
-                    })
-                    .collect();
-
-                for dex in dexes {
-                    match dex {
-                        chain_json::chain_json_model::DexJsonModel::V2 {
-                            address,
-                            fee,
-                            stable_fee,
-                        } => continue,
-                        chain_json::chain_json_model::DexJsonModel::V3 { address, fee } => continue,
-                        chain_json::chain_json_model::DexJsonModel::V4 { address, manager } => {
-                            if let Some(man) = manager {
-                                if let Ok(addr) = Address::from_str(&man) {
-                                    &pools.push(addr);
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if let Ok(p) = provider {
-                    println!("ws provider {:?}", &p);
-                    if let Ok(mut sub) = ws_sub(&p, generate_pool_events(), pools.clone()).await {
-                        loop {
-                            match sub.recv().await {
-                                Ok(received) => {
-                                    println!("something received {:?}", received);
-                                    let decoded = decode_pools_log(received, &pool_events);
-                                    print!("decoded log {:?}", decoded);
-                                }
-
-                                Err(err) => {
-                                    println!("error receiving subscription data {:?}", err);
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
+async fn main(provider: WsProvider, events_map: HashMap<B256, UnifiedPoolEvent>) {
+    let (funnel, mut rx) = WsProviderFunnel::start(ws_provider).await;
+    funnel.add(init_pools(bsc_data)).await;
 
     while let Some(res) = rx.recv().await {
         match res {
-            UnifiedPoolEventResponse::V2Mint(_) => continue,
-            UnifiedPoolEventResponse::V2Burn(_) => continue,
-            UnifiedPoolEventResponse::V2Swap(_) => continue,
-            UnifiedPoolEventResponse::V2Sync(_) => continue,
-            UnifiedPoolEventResponse::V2Approval(_) => continue,
-            UnifiedPoolEventResponse::V2Transfer(_) => continue,
-            UnifiedPoolEventResponse::V3Mint(_) => continue,
-            UnifiedPoolEventResponse::V3Swap(_) => continue,
-            UnifiedPoolEventResponse::V3Collect(_) => continue,
-            UnifiedPoolEventResponse::V3Burn(_) => continue,
-            UnifiedPoolEventResponse::V3Flash(_) => continue,
+            UnifiedPoolEventResponse::V2Mint(log) => continue,
+            UnifiedPoolEventResponse::V2Burn(log) => continue,
+            UnifiedPoolEventResponse::V2Swap(log) => {
+                println!("v2 swap {:?}", log)
+            }
+
+            UnifiedPoolEventResponse::V2Sync(log) => continue,
+
+            UnifiedPoolEventResponse::V2Approval(log) => continue,
+
+            UnifiedPoolEventResponse::V2Transfer(log) => continue,
+
+            UnifiedPoolEventResponse::V3Mint(log) => continue,
+
+            UnifiedPoolEventResponse::V3Swap(log) => {
+                println!("v3 swap {:?}", log)
+            }
+
+            UnifiedPoolEventResponse::V3Collect(log) => continue,
+
+            UnifiedPoolEventResponse::V3Burn(log) => continue,
+
+            UnifiedPoolEventResponse::V3Flash(log) => continue,
+
             UnifiedPoolEventResponse::V4Donate(donate) => continue,
+
             UnifiedPoolEventResponse::V4Initialize(initialize) => {
                 println!("v4 initialized {:?}", initialize)
             }
-            UnifiedPoolEventResponse::V4Modify(modify_liquidity) => continue,
+
+            UnifiedPoolEventResponse::V4Modify(modify_liquidity) => {
+                println!("v4 modified {:?}", modify_liquidity)
+            }
+
             UnifiedPoolEventResponse::V4Swap(log) => println!("v4 swap {:?}", log),
         }
     }
@@ -154,9 +103,11 @@ pub async fn ws_provider(url: Url) -> Result<WsProvider, RpcError<TransportError
 
     match RpcClient::connect_pubsub(ws_connect).await {
         Ok(rpc_client) => {
+            println!("ws connection {:?}", &url);
             let provider = ProviderBuilder::new().connect_client(rpc_client);
             Ok(provider)
         }
+
         Err(err) => Err(err),
     }
 }
