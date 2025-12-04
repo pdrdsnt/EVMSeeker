@@ -23,6 +23,7 @@ use ws_subscription::{WsProviderFunnel, create_ws_sub};
 
 pub mod pool_event;
 pub mod seeker;
+pub mod token_event;
 pub mod ws_subscription;
 
 #[tokio::test]

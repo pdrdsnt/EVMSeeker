@@ -111,6 +111,15 @@ pub async fn ws_provider(url: Url) -> Result<WsProvider, RpcError<TransportError
         Err(err) => Err(err),
     }
 }
+pub trait EventDecoder<In, Out> {
+    pub fn decode(res: In, e_map: &HashMap<B256, UnifiedPoolEvent>) -> Option<Out>;
+}
+
+pub fn decode_token_log(
+    res: Log,
+    e_map: &HashMap<B256, UnifiedPoolEvent>,
+) -> Option<UnifiedPoolEventResponse> {
+}
 
 pub fn decode_pools_log(
     res: Log,
