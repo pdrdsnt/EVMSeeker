@@ -131,11 +131,11 @@ pub enum UnifiedTokenEventResponse {
     ERC721Transfer(Log<ERC721Transfer>),
     ERC721Approval(Log<ERC721Approval>),
     ERC721ApprovalForAll(Log<ERC721ApprovalForAll>),
-
     // ERC-1155
-    ERC1155TransferSingle(Log<ERC1155TransferSingle>),
-    ERC1155TransferBatch(Log<ERC1155TransferBatch>),
-    ERC1155ApprovalForAll(Log<ERC1155ApprovalForAll>),
+    // these dont impl debug in the sol crate
+    // ERC1155TransferSingle(Log<ERC1155TransferSingle>),
+    // ERC1155TransferBatch(Log<ERC1155TransferBatch>),
+    // ERC1155ApprovalForAll(Log<ERC1155ApprovalForAll>),
     // Opcional: Mint/Burn se você declarar tipos específicos para eles
     // TokenMint(Log<MyToken::Mint>),
     // TokenBurn(Log<MyToken::Burn>),

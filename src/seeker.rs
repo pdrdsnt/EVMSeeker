@@ -10,12 +10,13 @@ use alloy::{
     transports::{RpcError, TransportErrorKind, http::reqwest::Url, ws::WsConnect},
 };
 
-use chain_json::{chain::ChainJsonInput, chain_json_model::JsonPoolKey, chains::ChainsJsonInput};
+use chains_json::{chain::ChainJsonInput, chain_json_model::JsonPoolKey, chains::ChainsJsonInput};
 use futures::channel::mpsc::UnboundedReceiver;
 use sol::sol_types::{StateView, V3Pool};
 use tokio::main;
 
 use crate::{
+    extract_pools_addresses,
     pool_event::{
         UnifiedPoolEvent, UnifiedPoolEventResponse, generate_pool_events, generate_pools_events_map,
     },
@@ -40,9 +41,13 @@ pub type WsProvider = alloy::providers::fillers::FillProvider<
 >;
 
 #[tokio::main(flavor = "current_thread")]
-async fn main(provider: WsProvider, events_map: HashMap<B256, UnifiedPoolEvent>) {
-    let (funnel, mut rx) = WsProviderFunnel::start(ws_provider).await;
-    funnel.add(init_pools(bsc_data)).await;
+async fn start(
+    provider: WsProvider,
+    events_map: HashMap<B256, UnifiedPoolEvent>,
+    chains_data: ChainJsonInput,
+) {
+    let (funnel, mut rx) = WsProviderFunnel::start(provider).await;
+    funnel.add(extract_pools_addresses(chains_data)).await;
 
     while let Some(res) = rx.recv().await {
         match res {
@@ -111,14 +116,15 @@ pub async fn ws_provider(url: Url) -> Result<WsProvider, RpcError<TransportError
         Err(err) => Err(err),
     }
 }
-pub trait EventDecoder<In, Out> {
-    pub fn decode(res: In, e_map: &HashMap<B256, UnifiedPoolEvent>) -> Option<Out>;
+trait EventDecoder<In, Out> {
+    fn decode(res: In, e_map: &HashMap<B256, UnifiedPoolEvent>) -> Option<Out>;
 }
 
 pub fn decode_token_log(
     res: Log,
     e_map: &HashMap<B256, UnifiedPoolEvent>,
 ) -> Option<UnifiedPoolEventResponse> {
+    None
 }
 
 pub fn decode_pools_log(

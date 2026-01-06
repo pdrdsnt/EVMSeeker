@@ -1,5 +1,3 @@
-use std::hash::Hash;
-
 use alloy::{
     primitives::{
         Address, B256,

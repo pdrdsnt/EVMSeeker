@@ -10,16 +10,22 @@ use alloy::{
     transports::{RpcError, TransportErrorKind, http::reqwest::Url, ws::WsConnect},
 };
 
-use chain_json::{chain::ChainJsonInput, chain_json_model::JsonPoolKey, chains::ChainsJsonInput};
+use chains_json::{
+    chain::ChainJsonInput,
+    chain_json_model::{JsonPoolKey, PoolJsonModel},
+    chains::ChainsJsonInput,
+};
 use futures::channel::mpsc::UnboundedReceiver;
 use pool_event::{
     UnifiedPoolEvent, UnifiedPoolEventResponse, generate_pool_events, generate_pools_events_map,
 };
-use receiver_funnel::ReceiverFunnel;
-use seeker::{init_pools, ws_provider};
+use receiver_funnel::receiver_funnel;
+use seeker::ws_provider;
 use sol::sol_types::{StateView, V3Pool};
 use tokio::main;
 use ws_subscription::{WsProviderFunnel, create_ws_sub};
+
+use crate::seeker::{WsProvider, decode_pools_log, ws_sub};
 
 pub mod pool_event;
 pub mod seeker;
@@ -31,13 +37,20 @@ async fn it_works() {
     let mut chains = ChainsJsonInput::default();
     let pool_events: HashMap<B256, UnifiedPoolEvent> = generate_pools_events_map();
 
-    let mut bsc_data = chains.chains.remove(&56).unwrap();
+    let mut bsc_data = chains.chains.remove(&130).unwrap();
     let provider_url = bsc_data.ws_nodes_urls.first().unwrap();
 
     let url = Url::from_str(provider_url).unwrap();
-    let ws_provider = ws_provider(url).await.unwrap();
+    println!("{:?}", &url);
+
+    let ws_provider = match ws_provider(url).await {
+        Ok(ok) => ok,
+        Err(err) => {
+            panic!("ws provider creation failed: {:?}", err)
+        }
+    };
     let (funnel, mut rx) = WsProviderFunnel::start(ws_provider).await;
-    funnel.add(init_pools(bsc_data)).await;
+    funnel.add(extract_pools_addresses(bsc_data)).await;
 
     while let Some(res) = rx.recv().await {
         match res {
@@ -82,44 +95,44 @@ async fn it_works() {
     println!("exiting");
 }
 
-pub fn init_pools(mut chain: ChainJsonInput) -> Vec<Address> {
+pub fn extract_pools_addresses(mut chain: ChainJsonInput) -> Vec<Address> {
     let pools = Vec::new();
     for node in chain.ws_nodes_urls {
         let dexes = chain.dexes.clone();
 
-        let mut pools: Vec<Address> = chain
-            .pools
-            .iter()
-            .filter_map(|(key, pool)| match key {
-                JsonPoolKey::V2(address) => Some(*address),
-                JsonPoolKey::V3(address) => Some(*address),
-                JsonPoolKey::V4(address, fixed_bytes) => None,
-            })
-            .collect();
-
-        for dex in dexes {
-            match dex {
-                chain_json::chain_json_model::DexJsonModel::V2 {
+        let mut pools_addresses = Vec::new();
+        let mut pools: &Vec<PoolJsonModel> = &chain.pools;
+        for p in pools {
+            let addr = match p {
+                PoolJsonModel::V2 {
                     address,
+                    token0,
+                    token1,
                     fee,
-                    stable_fee,
-                } => continue,
-                chain_json::chain_json_model::DexJsonModel::V3 { address, fee } => continue,
-                chain_json::chain_json_model::DexJsonModel::V4 { address, manager } => {
-                    if let Some(man) = manager {
-                        if let Ok(addr) = Address::from_str(&man) {
-                            &pools.push(addr);
-                        }
-                    }
-                }
-            }
+                } => address,
+                PoolJsonModel::V3 {
+                    address,
+                    token0,
+                    token1,
+                    fee,
+                } => address,
+                PoolJsonModel::V4 {
+                    pool_manager,
+                    state_view,
+                    token0,
+                    token1,
+                    fee,
+                    spacing,
+                    hooks,
+                } => state_view,
+            };
+            pools_addresses.push(p);
         }
     }
     pools
 }
 
-#[tokio::test]
-pub async fn test_sub(pools: Vec<Address>, provider: WsProvider) {
+pub async fn listen_to_all(pools: Vec<Address>, provider: WsProvider) {
     println!("ws provider {:?}", &provider);
     let pool_events = generate_pools_events_map();
     if let Ok(mut sub) = ws_sub(&provider, generate_pool_events(), pools.clone()).await {

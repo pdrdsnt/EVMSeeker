@@ -4,10 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+ReceiverFunnel = { git = "https://github.com/pdrdsnt/ReceiverFunnel" }
 alloy = { version = "1.0.42", features = ["transport-ws"] }
-chain_json = { path = "../Arbitro/lib/chain_json" }
+chains_json = { git = "https://github.com/pdrdsnt/chains_data_json_rust" }
 futures = "0.3.31"
-receiver_funnel = { git = "https://github.com/pdrdsnt/ReceiverFunnel" }
 sol = { path = "../Arbitro/lib/sol" }
 tokio = { version = "1.48.0", features = [] }
 tokio-stream = "0.1.17"

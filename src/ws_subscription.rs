@@ -21,13 +21,12 @@ use tokio::sync::mpsc::unbounded_channel;
 use tokio_stream::wrappers::BroadcastStream;
 
 use crate::{
-    WsP,
     pool_event::{
         UnifiedPoolEvent, UnifiedPoolEventResponse, generate_pool_events, generate_pools_events_map,
     },
     receiver_funnel::ReceiverFunnel,
-    seeker::WsProvider,
-    ws_provider, ws_sub,
+    seeker::{WsProvider, ws_sub},
+    ws_provider,
 };
 
 pub struct WsProviderFunnel {
