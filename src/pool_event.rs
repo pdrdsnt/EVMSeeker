@@ -1,3 +1,9 @@
+use all_sol_types::sol_types::{
+    self,
+    IUniswapV2Pair::{self, IUniswapV2PairEvents, Mint, Swap, Sync, Transfer},
+    StateView::{self, Donate, Initialize, ModifyLiquidity, StateViewEvents},
+    V3Pool::{self, Burn, Flash, V3PoolEvents},
+};
 use alloy::{
     primitives::{
         Address, B256,
@@ -12,11 +18,6 @@ use alloy::{
     transports::{RpcError, TransportErrorKind, http::reqwest::Url, ws::WsConnect},
 };
 use futures::channel::mpsc::UnboundedReceiver;
-use sol::sol_types::{
-    IUniswapV2Pair::{self, IUniswapV2PairEvents, Mint, Swap, Sync, Transfer},
-    StateView::{self, Donate, Initialize, ModifyLiquidity, StateViewEvents},
-    V3Pool::{self, Burn, Flash, V3PoolEvents},
-};
 
 pub struct Chunk {
     addrs: HashSet<Address>,
@@ -32,46 +33,46 @@ pub fn generate_pools_events_map()
 -> std::collections::HashMap<alloy::primitives::FixedBytes<32>, UnifiedPoolEvent> {
     let mut map = HashMap::new();
 
-    let v2_sync_hash = sol::sol_types::IUniswapV2Pair::Sync::SIGNATURE_HASH;
+    let v2_sync_hash = sol_types::IUniswapV2Pair::Sync::SIGNATURE_HASH;
     map.insert(v2_sync_hash, UnifiedPoolEvent::V2Mint());
 
-    let v2_mint_hash = sol::sol_types::IUniswapV2Pair::Mint::SIGNATURE_HASH;
+    let v2_mint_hash = sol_types::IUniswapV2Pair::Mint::SIGNATURE_HASH;
     map.insert(v2_mint_hash, UnifiedPoolEvent::V2Mint());
 
-    let v2_approval_hash = sol::sol_types::IUniswapV2Pair::Approval::SIGNATURE_HASH;
+    let v2_approval_hash = sol_types::IUniswapV2Pair::Approval::SIGNATURE_HASH;
     map.insert(v2_approval_hash, UnifiedPoolEvent::V2Approval());
 
-    let v2_swap_hash = sol::sol_types::IUniswapV2Pair::Swap::SIGNATURE_HASH;
+    let v2_swap_hash = sol_types::IUniswapV2Pair::Swap::SIGNATURE_HASH;
     map.insert(v2_swap_hash, UnifiedPoolEvent::V2Swap());
 
-    let v2_burn_hash = sol::sol_types::IUniswapV2Pair::Burn::SIGNATURE_HASH;
+    let v2_burn_hash = sol_types::IUniswapV2Pair::Burn::SIGNATURE_HASH;
     map.insert(v2_burn_hash, UnifiedPoolEvent::V2Burn());
 
-    let v3_burn_hash = sol::sol_types::V3Pool::Burn::SIGNATURE_HASH;
+    let v3_burn_hash = sol_types::V3Pool::Burn::SIGNATURE_HASH;
     map.insert(v3_burn_hash, UnifiedPoolEvent::V3Burn());
 
-    let v3_collect_hash = sol::sol_types::V3Pool::Collect::SIGNATURE_HASH;
+    let v3_collect_hash = sol_types::V3Pool::Collect::SIGNATURE_HASH;
     map.insert(v3_collect_hash, UnifiedPoolEvent::V3Collect());
 
-    let v3_mint_hash = sol::sol_types::V3Pool::Mint::SIGNATURE_HASH;
+    let v3_mint_hash = sol_types::V3Pool::Mint::SIGNATURE_HASH;
     map.insert(v3_mint_hash, UnifiedPoolEvent::V3Mint());
 
-    let v3_flash_hash = sol::sol_types::V3Pool::Flash::SIGNATURE_HASH;
+    let v3_flash_hash = sol_types::V3Pool::Flash::SIGNATURE_HASH;
     map.insert(v3_flash_hash, UnifiedPoolEvent::V3Flash());
 
-    let v3_swap_hash = sol::sol_types::V3Pool::Swap::SIGNATURE_HASH;
+    let v3_swap_hash = sol_types::V3Pool::Swap::SIGNATURE_HASH;
     map.insert(v3_swap_hash, UnifiedPoolEvent::V3Swap());
 
-    let v4_modify_liquidity = sol::sol_types::StateView::ModifyLiquidity::SIGNATURE_HASH;
+    let v4_modify_liquidity = sol_types::StateView::ModifyLiquidity::SIGNATURE_HASH;
     map.insert(v4_modify_liquidity, UnifiedPoolEvent::V4Modify());
 
-    let v4_swap = sol::sol_types::StateView::Swap::SIGNATURE_HASH;
+    let v4_swap = sol_types::StateView::Swap::SIGNATURE_HASH;
     map.insert(v4_swap, UnifiedPoolEvent::V4Swap());
 
-    let v4_init = sol::sol_types::StateView::ModifyLiquidity::SIGNATURE_HASH;
+    let v4_init = sol_types::StateView::ModifyLiquidity::SIGNATURE_HASH;
     map.insert(v4_init, UnifiedPoolEvent::V4Initialize());
 
-    let v4_donate = sol::sol_types::StateView::Donate::SIGNATURE_HASH;
+    let v4_donate = sol_types::StateView::Donate::SIGNATURE_HASH;
     map.insert(v4_donate, UnifiedPoolEvent::V4Donate());
 
     map

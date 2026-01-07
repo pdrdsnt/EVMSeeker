@@ -7,10 +7,10 @@ name = "EVMSeeker"
 version = "0.1.0"
 dependencies = [
  "ReceiverFunnel",
+ "all_sol_types",
  "alloy",
  "chains_json",
  "futures",
- "sol",
  "tokio",
  "tokio-stream",
 ]
@@ -23,6 +23,16 @@ dependencies = [
  "futures",
  "tokio",
  "tokio-stream",
+]
+
+[[package]]
+name = "all_sol_types"
+version = "0.1.0"
+source = "git+https://github.com/pdrdsnt/all_sol_types#fec0e764c807f6de54623e35b60cef8a65d4fd90"
+dependencies = [
+ "alloy-contract",
+ "alloy-sol-types",
+ "serde",
 ]
 
 [[package]]
@@ -3285,15 +3295,6 @@ checksum = "17129e116933cf371d018bb80ae557e889637989d8638274fb25622827b03881"
 dependencies = [
  "libc",
  "windows-sys 0.60.2",
-]
-
-[[package]]
-name = "sol"
-version = "0.1.0"
-dependencies = [
- "alloy-contract",
- "alloy-sol-types",
- "serde",
 ]
 
 [[package]]
